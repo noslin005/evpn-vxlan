@@ -1,0 +1,167 @@
+name: dual-spine-mlag-evpn
+
+mgmt:
+  network: mgmt
+  ipv4-subnet: 172.20.20.0/24
+
+topology:
+  # ───────────────────────────────────────────
+  #  KIND DEFAULTS
+  # ───────────────────────────────────────────
+  kinds:
+    arista_ceos:
+      image: ceos:4.35.2F
+    linux:
+      image: alpine-host
+
+  # ───────────────────────────────────────────
+  #  NODES
+  # ───────────────────────────────────────────
+  nodes:
+    # ── Spines (AS65001) ──────────────────────
+    spine1:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.11
+      startup-config: configs/spine1.cfg
+
+    spine2:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.12
+      startup-config: configs/spine2.cfg
+
+    # ── MLAG Pair A (AS65002) ─────────────────
+    leaf1:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.21
+      startup-config: configs/leaf1.cfg
+
+    leaf2:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.22
+      startup-config: configs/leaf2.cfg
+
+    # ── MLAG Pair B (AS65003) ─────────────────
+    leaf3:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.23
+      startup-config: configs/leaf3.cfg
+
+    leaf4:
+      kind: arista_ceos
+      mgmt-ipv4: 172.20.20.24
+      startup-config: configs/leaf4.cfg
+
+    # ── Hosts ─────────────────────────────────
+    # hostA: behind MLAG pair A, VLAN 100
+    hostA:
+      kind: linux
+      mgmt-ipv4: 172.20.20.31
+      env:
+        BOND: eth1:eth2
+        BOND_MODE: 802.3ad
+        ADDRESS: bond0.100:10.100.1.11/24
+        ROUTES: 0.0.0.0/0:10.100.1.1
+
+    # hostB: behind MLAG pair A, VLAN 200
+    hostB:
+      kind: linux
+      mgmt-ipv4: 172.20.20.32
+      env:
+        BOND: eth1:eth2
+        BOND_MODE: 802.3ad
+        ADDRESS: bond0.200:10.200.1.11/24
+        ROUTES: 0.0.0.0/0:10.200.1.1
+
+    # hostC: behind MLAG pair B, VLAN 300
+    hostC:
+      kind: linux
+      mgmt-ipv4: 172.20.20.33
+      env:
+        BOND: eth1:eth2
+        BOND_MODE: 802.3ad
+        ADDRESS: bond0.100:10.100.1.12/24
+        ROUTES: 0.0.0.0/0:10.100.1.1
+
+    # hostD: behind MLAG pair B, VLAN 400
+    hostD:
+      kind: linux
+      mgmt-ipv4: 172.20.20.34
+      env:
+        BOND: eth1:eth2
+        BOND_MODE: 802.3ad
+        ADDRESS: bond0.200:10.200.1.12/24
+        ROUTES: 0.0.0.0/0:10.200.1.1
+
+  # ───────────────────────────────────────────
+  #  LINKS
+  # ───────────────────────────────────────────
+  links:
+    # ── spine1 P2P uplinks ────────────────────
+    #   spine1:eth1 = 10.1.1.0/31 (.0)
+    #   leaf1:eth1  = 10.1.1.0/31 (.1)
+    - endpoints: ["spine1:eth1", "leaf1:eth1"]
+
+    #   spine1:eth2 = 10.1.1.2/31 (.2)
+    #   leaf2:eth1  = 10.1.1.2/31 (.3)
+    - endpoints: ["spine1:eth2", "leaf2:eth1"]
+
+    #   spine1:eth3 = 10.1.1.4/31 (.4)
+    #   leaf3:eth1  = 10.1.1.4/31 (.5)
+    - endpoints: ["spine1:eth3", "leaf3:eth1"]
+
+    #   spine1:eth4 = 10.1.1.6/31 (.6)
+    #   leaf4:eth1  = 10.1.1.6/31 (.7)
+    - endpoints: ["spine1:eth4", "leaf4:eth1"]
+
+    # ── spine2 P2P uplinks ────────────────────
+    #   spine2:eth1 = 10.1.2.0/31 (.0)
+    #   leaf1:eth2  = 10.1.2.0/31 (.1)
+    - endpoints: ["spine2:eth1", "leaf1:eth2"]
+
+    #   spine2:eth2 = 10.1.2.2/31 (.2)
+    #   leaf2:eth2  = 10.1.2.2/31 (.3)
+    - endpoints: ["spine2:eth2", "leaf2:eth2"]
+
+    #   spine2:eth3 = 10.1.2.4/31 (.4)
+    #   leaf3:eth2  = 10.1.2.4/31 (.5)
+    - endpoints: ["spine2:eth3", "leaf3:eth2"]
+
+    #   spine2:eth4 = 10.1.2.6/31 (.6)
+    #   leaf4:eth2  = 10.1.2.6/31 (.7)
+    - endpoints: ["spine2:eth4", "leaf4:eth2"]
+
+    # ── MLAG pair A peer-link (Po1) ───────────
+    #   No IP on physical members.
+    #   Vlan4094: leaf1=169.254.0.1/30  leaf2=169.254.0.2/30
+    - endpoints: ["leaf1:eth3", "leaf2:eth3"]
+    - endpoints: ["leaf1:eth4", "leaf2:eth4"]
+
+    # ── MLAG pair B peer-link (Po1) ───────────
+    #   No IP on physical members.
+    #   Vlan4094: leaf3=169.254.1.1/30  leaf4=169.254.1.2/30
+    - endpoints: ["leaf3:eth3", "leaf4:eth3"]
+    - endpoints: ["leaf3:eth4", "leaf4:eth4"]
+
+    # ── hostA dual-homed links (MLAG Po10) ────
+    #   L2 trunk, VLAN 100
+    #   Anycast GW: 10.100.1.1/24  hostA: 10.100.1.11/24
+    - endpoints: ["leaf1:eth5", "hostA:eth1"]
+    - endpoints: ["leaf2:eth5", "hostA:eth2"]
+
+    # ── hostB dual-homed links (MLAG Po20) ────
+    #   L2 trunk, VLAN 200
+    #   Anycast GW: 10.200.1.1/24  hostB: 10.200.1.11/24
+    - endpoints: ["leaf1:eth6", "hostB:eth1"]
+    - endpoints: ["leaf2:eth6", "hostB:eth2"]
+
+    # ── hostC dual-homed links (MLAG Po10) ────
+    #   L2 trunk, VLAN 100
+    #   Anycast GW: 10.100.1.1/24  hostC: 10.100.1.12/24
+    - endpoints: ["leaf3:eth5", "hostC:eth1"]
+    - endpoints: ["leaf4:eth5", "hostC:eth2"]
+
+    # ── hostD dual-homed links (MLAG Po20) ────
+    #   L2 trunk, VLAN 200
+    #   Anycast GW: 10.200.1.1/24  hostD: 10.200.1.12/24
+    - endpoints: ["leaf3:eth6", "hostD:eth1"]
+    - endpoints: ["leaf4:eth6", "hostD:eth2"]
